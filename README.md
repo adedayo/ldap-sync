@@ -1,4 +1,4 @@
-# Simple Go library for syncing against an LDAP server
+# Simple Go library for reading/syncing against an LDAP server
 
 A simple library for syncing/downloading the content of an LDAP server.
 
@@ -8,7 +8,7 @@ Possible use case may be to review privileges or determine which principal shoul
 The primary entry point is 
 
 ```go
-conf :=  := sync.LDAPSyncConfig {  
+conf := sync.LDAPSyncConfig {  
     ...
 }
 result, err := sync.LDAP(conf)
