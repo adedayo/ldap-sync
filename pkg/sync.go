@@ -6,6 +6,7 @@ import (
 	"github.com/go-ldap/ldap/v3"
 )
 
+// sync an LDAP service based on provided sync configuration
 func LDAP(config LDAPSyncConfig) (result LDAPRecords, err error) {
 	config = config.Sanitize()
 	result.config = &config
