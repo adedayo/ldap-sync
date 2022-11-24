@@ -3,11 +3,49 @@ package sync
 import (
 	"fmt"
 	"net"
+	"strings"
 )
 
 type LDAPRecords struct {
 	Entries []*LDAPEntry
 	config  *LDAPSyncConfig
+}
+
+func (sr LDAPRecords) GetUsersAndGroups() UsersAndGroups {
+
+	users := sr.GetUsers()
+	groups := sr.GetGroups()
+
+	ug := UsersAndGroups{
+		Users:  make([]User, len(users)),
+		Groups: make([]Group, len(groups)),
+	}
+
+	for i, g := range groups {
+		ug.Groups[i] = Group{
+			DN: g.DN,
+			ID: simpleName(g.DN),
+		}
+	}
+	for i, u := range users {
+		ug.Users[i] = User{
+			DN: u.DN,
+			ID: simpleName(u.DN),
+		}
+
+		for j, g := range ug.Groups {
+			if sr.IsMember(u.DN, g.DN) {
+				ug.Groups[j].Members = append(ug.Groups[j].Members, u.DN)
+			}
+		}
+	}
+
+	return ug
+
+}
+
+func simpleName(dn string) string {
+	return strings.Split(strings.Split(dn, ",")[0], "=")[0]
 }
 
 func (sr LDAPRecords) GetUsers() (ents []*LDAPEntry) {
@@ -60,9 +98,9 @@ type LDAPConfig struct {
 	RequiresAuthentication bool   //if sync requires authentication, in which case sync username and passwords below must be set
 	SyncUserName           string //distinguished name of an administrative user that the application will use when connecting to the directory server. For Active Directory, the user should be a member of the built-in administrator group
 	SyncUserPassword       string
-	RootPath               string
-	TLS, StartTLS          bool
-	Port                   *string //389 if not set
+	// RootPath               string
+	TLS, StartTLS bool
+	Port          *string //389 if not set
 }
 
 type LDAPSyncConfig struct {
@@ -126,4 +164,20 @@ type LDAPAttribute struct {
 
 func (att LDAPAttribute) String() string {
 	return fmt.Sprintf("%s -> %s", att.Name, att.Values)
+}
+
+type UsersAndGroups struct {
+	Users  []User
+	Groups []Group
+}
+
+type User struct {
+	ID string //simple name johnd
+	DN string // e.g. uid=johnd,ou=users,dc=company,dc=com
+}
+
+type Group struct {
+	ID      string
+	DN      string
+	Members []string //user DNs
 }
