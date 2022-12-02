@@ -5,13 +5,14 @@ A simple library for syncing/downloading the content of an LDAP server.
 Possible use case may be to review privileges or determine which principal should have access to resources based on existing group membership
 
 ## Basic usage
-The primary entry point is 
+
+The primary entry point is
 
 ```go
-conf := sync.LDAPSyncConfig {  
+conf := ldapsync.LDAPSyncConfig {
     ...
 }
-result, err := sync.LDAP(conf)
+result, err := ldapsync.Do(conf)
 ```
 
 ## A more complete example
@@ -20,38 +21,38 @@ Sync against an LDAP server running on the localhost and identify users, groups 
 
 ```go
 port := "389"
-conf := sync.LDAPSyncConfig{
+conf := ldapsync.LDAPSyncConfig{
     BaseDNs: []string{"dc=example,dc=org"},
-    ServerConfig: sync.LDAPConfig{
+    ServerConfig: ldapsync.LDAPConfig{
         Server:                 "localhost", //LDAP server
-        
-        // set to false if server supports anonymous query, 
-        // in which case the SyncUserName and the SyncUserPassword 
+
+        // set to false if server supports anonymous query,
+        // in which case the SyncUserName and the SyncUserPassword
         // are not necessary
-        RequiresAuthentication: true, 
-        
+        RequiresAuthentication: true,
+
         SyncUserName:           "cn=admin,dc=example,dc=org",
         SyncUserPassword:       "secret_admin_password",
 
         //LDAP port, default 389, if not set
-        Port:                   &port, 
+        Port:                   &port,
     },
-    GroupFilter: sync.LDAPFilter{ 
-        // This is how we identify groups in the LDAP tree. In this case 
-        // it says if the LDAP entity's "objectClass" attribute contains 
+    GroupFilter: ldapsync.LDAPFilter{
+        // This is how we identify groups in the LDAP tree. In this case
+        // it says if the LDAP entity's "objectClass" attribute contains
         // value "posixGroup" then the entry is a "group"
-        Filters: []sync.FilterExpression{
+        Filters: []ldapsync.FilterExpression{
             {
                 Name:  "objectClass",
                 Value: "posixGroup",
             },
         },
     },
-    UserFilter: sync.LDAPFilter{ 
-        //This is how we identify users in the LDAP tree. In this case, 
-        // it says if the LDAP entity's "objectClass" attribute has a 
-        // value "inetOrgPerson" then the entry is a "user" 
-        Filters: []sync.FilterExpression{
+    UserFilter: ldapsync.LDAPFilter{
+        //This is how we identify users in the LDAP tree. In this case,
+        // it says if the LDAP entity's "objectClass" attribute has a
+        // value "inetOrgPerson" then the entry is a "user"
+        Filters: []ldapsync.FilterExpression{
             {
                 Name:  "objectClass",
                 Value: "inetOrgPerson",
@@ -59,9 +60,9 @@ conf := sync.LDAPSyncConfig{
         },
     },
 
-    GroupMembership: sync.GroupMembershipAssociator{ 
-        //This is how we map users to groups. In this example, 
-        // it is when a user's "uid" is contained in a group's 
+    GroupMembership: ldapsync.GroupMembershipAssociator{
+        //This is how we map users to groups. In this example,
+        // it is when a user's "uid" is contained in a group's
         // "memberUid" attribute
         UserAttribute:  "uid",
         GroupAttribute: "memberUid",
@@ -69,7 +70,7 @@ conf := sync.LDAPSyncConfig{
 }
 
 //sync against the LDAP server
- result, err := sync.LDAP(conf)
+ result, err := ldapsync.LDAP(conf)
 
  if err != nil {
     log.Fatal(err)
@@ -81,7 +82,7 @@ conf := sync.LDAPSyncConfig{
 //check membership
 user := "cn=admin,dc=example,dc=org"
 group := "cn=ServerAdmins,dc=example,dc=org"
- fmt.Printf("\n It is %v that user %s is a memeber of group %s",  
+ fmt.Printf("\n It is %v that user %s is a memeber of group %s",
    result.IsMember(user, group), user, group)
 
 ```

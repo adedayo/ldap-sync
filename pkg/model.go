@@ -1,4 +1,4 @@
-package sync
+package ldapsync
 
 import (
 	"fmt"
@@ -6,9 +6,16 @@ import (
 	"strings"
 )
 
+type AuthResult struct {
+	Success      bool
+	ErrorMessage string
+}
+
 type LDAPRecords struct {
-	Entries []*LDAPEntry
-	config  *LDAPSyncConfig
+	Entries        []*LDAPEntry
+	config         *LDAPSyncConfig
+	users, groups  []*LDAPEntry
+	UsersAndGroups UsersAndGroups
 }
 
 func (sr LDAPRecords) GetUsersAndGroups() UsersAndGroups {
@@ -45,29 +52,43 @@ func (sr LDAPRecords) GetUsersAndGroups() UsersAndGroups {
 }
 
 func simpleName(dn string) string {
-	return strings.Split(strings.Split(dn, ",")[0], "=")[0]
+	x := strings.Split(strings.Split(dn, ",")[0], "=")
+	if len(x) > 1 {
+		return x[1]
+	}
+	return "" //error
 }
 
-func (sr LDAPRecords) GetUsers() (ents []*LDAPEntry) {
-	for _, e := range sr.Entries {
-		if sr.config.UserFilter.Matches(e) {
-			ents = append(ents, e)
+func (sr *LDAPRecords) GetUsers() []*LDAPEntry {
+
+	if sr.users == nil { //only  do this once
+		var ents []*LDAPEntry
+		for _, e := range sr.Entries {
+			if sr.config.UserFilter.Matches(e) {
+				ents = append(ents, e)
+			}
 		}
+		sr.users = ents
 	}
-	return
+	return sr.users
 }
 
-func (sr LDAPRecords) GetGroups() (ents []*LDAPEntry) {
-	for _, e := range sr.Entries {
-		if sr.config.GroupFilter.Matches(e) {
-			ents = append(ents, e)
+func (sr *LDAPRecords) GetGroups() []*LDAPEntry {
+	if sr.groups == nil { //only  do this once
+		var ents []*LDAPEntry
+		for _, e := range sr.Entries {
+			if sr.config.GroupFilter.Matches(e) {
+				ents = append(ents, e)
+			}
 		}
+		sr.groups = ents
 	}
-	return
+
+	return sr.groups
 }
 
 // checks whether a user distinguished name (DN) belongs to the group specified as a DN
-func (sr LDAPRecords) IsMember(user, group string) bool {
+func (sr *LDAPRecords) IsMember(user, group string) bool {
 	var uu, gg *LDAPEntry
 	for _, g := range sr.GetGroups() {
 		if g.DN == group {
@@ -93,38 +114,53 @@ func (sr LDAPRecords) IsMember(user, group string) bool {
 	return sr.config.GroupMembership.IsMember(uu, gg)
 }
 
+type LDAPAuthData struct {
+	Server   string `json:"server"`
+	Port     string `json:"port"`
+	TLS      string `json:"tls"`
+	UID      string `json:"uid"`
+	URDNs    string `json:"urdns"`
+	User     string `json:"user"`
+	Password string `json:"pwd"`
+}
+
 type LDAPConfig struct {
 	Server                 string
-	RequiresAuthentication bool   //if sync requires authentication, in which case sync username and passwords below must be set
-	SyncUserName           string //distinguished name of an administrative user that the application will use when connecting to the directory server. For Active Directory, the user should be a member of the built-in administrator group
-	SyncUserPassword       string
-	// RootPath               string
-	TLS, StartTLS bool
-	Port          *string //389 if not set
+	RequiresAuthentication bool   `json:"requiresAuth"` //if sync requires authentication, in which case sync username and passwords below must be set
+	SyncUserName           string `json:"syncUserName"` //distinguished name of an administrative user that the application will use when connecting to the directory server. For Active Directory, the user should be a member of the built-in administrator group
+	SyncPassword           string `json:"syncPassword"`
+	TLS, StartTLS          bool
+	Port                   *string //389 if not set
 }
 
 type LDAPSyncConfig struct {
-	ServerConfig    LDAPConfig
-	BaseDNs         []string //Base DNs to search from
-	GroupFilter     LDAPFilter
-	UserFilter      LDAPFilter
-	GroupMembership GroupMembershipAssociator // how we determine which groups the user belongs to
+	// ServerConfig    LDAPConfig
+	Server                 string                    `json:"server"`
+	RequiresAuthentication bool                      `json:"syncRequiresAuth"` //if sync requires authentication, in which case sync username and passwords below must be set
+	SyncUserName           string                    `json:"syncUserName"`     //distinguished name of an administrative user that the application will use when connecting to the directory server. For Active Directory, the user should be a member of the built-in administrator group
+	SyncPassword           string                    `json:"syncUserPassword"`
+	TLS                    string                    `json:"tls"`     // options: none, tls, starttls
+	Port                   *string                   `json:"port"`    //389 if not set
+	BaseDNs                []string                  `json:"baseDNs"` //Base DNs to search from `json:"baseDNs"`
+	GroupFilter            LDAPFilter                `json:"groupFilter"`
+	UserFilter             LDAPFilter                `json:"userFilter"`
+	GroupMembership        GroupMembershipAssociator `json:"groupMembership"` // how we determine which groups the user belongs to
 }
 
 func (conf LDAPSyncConfig) GetDialAddr() string {
 	port := "389"
-	if conf.ServerConfig.Port != nil {
-		port = *conf.ServerConfig.Port
+	if conf.Port != nil {
+		port = *conf.Port
 	}
-	return net.JoinHostPort(conf.ServerConfig.Server, port)
+	return net.JoinHostPort(conf.Server, port)
 }
 
 func (conf LDAPSyncConfig) GetDialURL() string {
 	port := "389"
-	if conf.ServerConfig.Port != nil {
-		port = *conf.ServerConfig.Port
+	if conf.Port != nil {
+		port = *conf.Port
 	}
-	return "ldap://" + net.JoinHostPort(conf.ServerConfig.Server, port)
+	return "ldap://" + net.JoinHostPort(conf.Server, port)
 }
 
 // Prevent LDAP Injection

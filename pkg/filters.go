@@ -1,4 +1,4 @@
-package sync
+package ldapsync
 
 import (
 	"regexp"
@@ -7,154 +7,90 @@ import (
 
 // Used for determining group membership of users
 type GroupMembershipAssociator struct {
-	UserAttribute   string             //user attribute to match against the group attribute, e.g. memberOf
-	GroupAttribute  string             // Group attribute to match against a user attribute e.g. DN
-	Operator        LDAPFilterOperator // logical operator to chain this and AdditionalRules for more complex membership conditions
-	AdditionalRules []GroupMembershipAssociator
+	Constraints     []Constraint                `json:"constraints"`
+	Operator        LDAPFilterOperator          `json:"operator"` // logical operator to chain this and AdditionalRules for more complex membership conditions
+	AdditionalRules []GroupMembershipAssociator `json:"additionalRules"`
 }
 
-// determines whether a user based on a user LDAP attribute belongs to a group e.g. {Name: memberOf, Value: superusers}
-func (gmf GroupMembershipAssociator) IsMember(user, group *LDAPEntry) bool {
+type Constraint struct {
+	UserAttribute  string //user attribute to match against the group attribute, e.g. memberOf
+	GroupAttribute string // Group attribute to match against a user attribute e.g. DN
+}
 
-	m := false
-	switch gmf.Operator {
-	case And:
-		if strings.ToLower(gmf.UserAttribute) == "dn" {
-			if strings.ToLower(gmf.GroupAttribute) == "dn" {
-				if user.DN != group.DN {
-					return false // short circuit
-				}
-				for _, f2 := range gmf.AdditionalRules {
-					if !f2.IsMember(user, group) {
-						return false // short circuit
-					}
-				}
-				return true // everything checks out
-			} else {
-				if !group.ContainsAttributeValue(gmf.GroupAttribute, user.DN) {
-					return false // short circuit
-				}
-				for _, f2 := range gmf.AdditionalRules {
-					if !f2.IsMember(user, group) {
-						return false // short circuit
-					}
-				}
-				return true // everything checks out
-			}
+func (c Constraint) IsMember(user, group *LDAPEntry) bool {
+	if strings.ToLower(c.UserAttribute) == "dn" {
+		if strings.ToLower(c.GroupAttribute) == "dn" {
+			return user.DN == group.DN
 		} else {
-			//some arbitrary user attribute
-			present, values := user.GetAttribute(gmf.UserAttribute)
-			if !present { // user does not even have attribute of interest, bail out
-				return false
-			}
-			if strings.ToLower(gmf.GroupAttribute) == "dn" {
-				for _, v := range values {
-					if v == group.DN {
-						//we found the match, check the rest of the conditions
-						for _, f2 := range gmf.AdditionalRules {
-							if !f2.IsMember(user, group) {
-								return false // short circuit
-							}
-						}
-						return true // everything checks out
-					}
-				}
-				//no match
-				return false
-			} else {
-				//some arbitrary group attribute
-				present, gValues := group.GetAttribute(gmf.GroupAttribute)
-				if !present { // group does not have attribute, bail out
-					return false
-				}
-				//check whether the user values intersect the group values
-				for _, uv := range values {
-					for _, gv := range gValues {
-						if uv == gv {
-							//we found a match, check the other conditions
-							for _, f2 := range gmf.AdditionalRules {
-								if !f2.IsMember(user, group) {
-									return false // short circuit
-								}
-							}
-							return true // everything checks out
-						}
-					}
-				}
-				//no match
-				return false
-			}
+			//some group attribute
+			return group.ContainsAttributeValue(c.GroupAttribute, user.DN)
 		}
-	case Or:
-		if strings.ToLower(gmf.UserAttribute) == "dn" {
-			if strings.ToLower(gmf.GroupAttribute) == "dn" {
-				if user.DN == group.DN {
-					return true // short circuit
-				}
-				for _, f2 := range gmf.AdditionalRules {
-					if f2.IsMember(user, group) {
-						return true // short circuit
-					}
-				}
-				return false // nothing checks out
-			} else {
-				if group.ContainsAttributeValue(gmf.GroupAttribute, user.DN) {
-					return true // short circuit
-				}
-				for _, f2 := range gmf.AdditionalRules {
-					if f2.IsMember(user, group) {
-						return true // short circuit
-					}
-				}
-				return false // nothing checks out
-			}
+	} else {
+		//some user attribute
+		if strings.ToLower(c.GroupAttribute) == "dn" {
+			return user.ContainsAttributeValue(c.UserAttribute, group.DN)
 		} else {
-			//some arbitrary user attribute
-			present, values := user.GetAttribute(gmf.UserAttribute)
-			if !present { // user does not even have attribute of interest, bail out
-				return false
-			}
-			if strings.ToLower(gmf.GroupAttribute) == "dn" {
-				for _, v := range values {
-					if v == group.DN {
-						//we found the match, short circuit
-						return true
-					}
-				}
-				for _, f2 := range gmf.AdditionalRules {
-					if f2.IsMember(user, group) {
-						return true // short circuit
-					}
-				}
-				//nothing checks out
-				return false
-			} else {
-				//some arbitrary group attribute
-				present, gValues := group.GetAttribute(gmf.GroupAttribute)
-				if !present { // group does not have attribute, bail out
-					return false
-				}
-				//check whether the user values intersect the group values
-				for _, uv := range values {
-					for _, gv := range gValues {
-						if uv == gv {
-							//we found a match, short circuit
-							return true
+			//some group attribute
+			if exist, uValues := user.GetAttribute(c.UserAttribute); exist {
+				if gexist, gValues := group.GetAttribute(c.GroupAttribute); gexist {
+					for _, uv := range uValues {
+						for _, gv := range gValues {
+							if uv == gv {
+								return true //found a match
+							}
 						}
 					}
+					return false // no match
+
+				} else {
+					return false // group attribute doesn't exist
 				}
-				//check other conditions
-				for _, f2 := range gmf.AdditionalRules {
-					if f2.IsMember(user, group) {
-						return true // short circuit
-					}
-				}
-				return false // nothing checks out
+			} else {
+				return false // user attribute doesn't exist
 			}
 		}
 	}
+}
 
-	return m
+// determines whether a user based on a user LDAP attribute belongs to a group e.g. {UserAttribute: uid, GroupAttribute: memberUid}
+func (gmf GroupMembershipAssociator) IsMember(user, group *LDAPEntry) bool {
+
+	switch gmf.Operator {
+	case And:
+		for _, c := range gmf.Constraints {
+			if !c.IsMember(user, group) {
+				return false // short circuit
+			}
+		}
+		//all the constraints are valid, check additional rules
+		for _, gma := range gmf.AdditionalRules {
+			if !gma.IsMember(user, group) {
+				return false // short circuit
+			}
+		}
+		// if we reach this point, everything checks out
+		return true
+
+	case Or:
+
+		for _, c := range gmf.Constraints {
+			if c.IsMember(user, group) {
+				return true // short circuit
+			}
+		}
+
+		for _, gma := range gmf.AdditionalRules {
+			if gma.IsMember(user, group) {
+				return true // short circuit
+			}
+		}
+		//nothing checks out
+		return false
+
+	default:
+		return false
+	}
+
 }
 
 type LDAPFilterOperator int
